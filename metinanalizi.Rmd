@@ -1,0 +1,590 @@
+---
+title: "textanalysis"
+author: "Sadettin Demirel"
+date: "2023-01-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## PREP
+
+```{r}
+windowsFonts("Poppins" = windowsFont("Poppins"))
+extrafont::loadfonts(device = "win")
+
+theme_poppins <- function() {
+  theme_minimal() +
+    theme(
+      text = element_text(family = "Poppins", color = "gray25"),
+      plot.title = element_text(face = "bold",size = 12),
+      plot.title.position = "plot",
+      plot.subtitle = element_text(size = 11),
+      axis.text.x= element_text(size=10),
+      axis.text.y = element_text(size=10),
+      plot.caption = element_text(size = 10, color = "gray30"),
+      plot.background = element_rect(fill = "#f6f5f5"),
+      legend.position = "none",
+      strip.background = element_rect(colour = "#d9d9d9", fill = "#d9d9d9"),
+      strip.text.x = element_text(size = 10, colour = "gray25", face = "bold"))
+}
+```
+
+
+```{r}
+library(quanteda)
+library(quanteda.textplots)
+library(quanteda.textstats)
+library(tidyverse)
+library(stopwords)
+library(ggplot2)
+library(forcats)
+library(gt)
+```
+
+```{r}
+metin_corp = corpus(readRDS("ortak_metinler.rds"))
+docvars(metin_corp)
+```
+
+```{r}
+docnames(metin_corp) <- docvars(metin_corp)$docvar1
+```
+
+
+```{r}
+summary(metin_corp)
+```
+
+## **READABILITY OF TEXT**
+
+```{r}
+readable <- textstat_readability(metin_corp, measure = "meanSentenceLength", min_sentence_length = 2, max_sentence_length = 1000) %>% select(document,"ort.cümle.uz"="meanSentenceLength")
+
+readable
+```
+
+```{r}
+text_summary <- textstat_summary(metin_corp) %>% select(document, "cümle"="sents","kelime"="tokens","özgün.kelime"="types") %>% left_join(readable) %>% mutate(ort.cümle.uz = round(ort.cümle.uz, digits = 1))
+text_summary
+```
+
+```{r}
+summary(text_summary)
+```
+
+
+```{r}
+text_summary  %>% pivot_longer(2:5, names_to = "parametre") %>% ggplot(aes(value, fct_reorder( document, value)))+geom_segment(aes(xend=0, yend=document))+
+  geom_point(size = 2.5, color = "#63ADF2")+facet_wrap(~parametre, scales = "free_x",nrow = 1)+theme_poppins()+labs(y="",x="",title = "Ortak açıklamaların metinsel özellikleri")
+```
+
+## **KEYWORD in CONTEXT**
+
+*aday*
+
+```{r}
+m_kw1 <- kwic(tokens(metin_corp), pattern =  "aday*", window = 6) %>% tibble() %>%  select("döküman"="docname","önce"="pre","kelime"="keyword","sonra"="post")
+
+m_kw1 %>% gt() %>% 
+  #yazı tipini belirle
+  opt_table_font(
+    font = list(
+      google_font(name = "Poppins"))) %>% 
+  #sütun isimlerini kalın, italik yaz
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(columns = everything())) %>% 
+  #sadece bir stundaki hücreleri özelleştir
+  tab_style(
+    style = cell_text(style = "italic"),
+    locations = cells_body(
+      column = kelime,
+      rows = everything())) %>% 
+  tab_options(table.background.color = "#f6f5f5") %>% 
+  gtsave("aday_kwic.png")
+```
+
+*seçim*
+```{r}
+m_kw2 <- kwic(tokens(metin_corp), pattern =  "seçim*", window = 6) %>% tibble() %>%  select("döküman"="docname","önce"="pre","kelime"="keyword","sonra"="post")
+m_kw2
+```
+
+
+*iktidar*
+```{r}
+m_kw3 <- kwic(tokens(metin_corp), pattern =  "iktidar*", window = 6)
+m_kw3
+```
+
+## **DICTIONARY METHODS**
+
+```{r}
+dict <- dictionary(list(
+  ekonomi = c("ekonomi*","israf*", "piyasa*","dolar*","borsa*","kur","döviz*","faiz*","merkez banka*","IMF","finans","iktisat", "hayat paha*","tcmb*","mevduat*","fiyat*","refah", "enflasyon*","işsiz*","yoksul*", "kkm*","üretim*","istihdam*", "borç*", "tüketim*","yoksullu*","kur korumalı"),
+  sistem = c("anayasa*","güçlendirilmiş parlamenter sistem*","siyasi etik","demokratik ilke+","geçiş dönem*","cumhurbaşkanlığı hükümet sistem*","reform*","kuvvetler ayrılı*","hukuk devleti*","özgürlük*","kurumsal reform*", "parlament+","yönetim*"),
+  seçim = c("seçim*","oy*", "seçim güvenli*","sandık*","aday*","cumhurbaşkan*","seçim kanun*"),
+  #güvenlik = c("terör*","suç örgüt*", "mafya*","mgk*","milli güvenlik kurulu*","sınır ötesi","ulusal güvenli*","tsk*","türk silahlı kuvvetleri*"),
+  dışpol = c("dış politik*","Rusya*","Ukrayna*","ABD*","İngiltere*","Yunanistan*","Suriye*","Putin*","Biden*","Avrupa Birli+","AB","Finlandiya*","İsveç*","Ukrayna-Rusya","Rusya-Ukrayna","Avrupa Konsey*","diplomasi*","diplomat*")))
+print(dict)
+```
+
+
+```{r}
+dict_toks <- tokens_lookup(tokens(metin_corp), dictionary = dict)
+convert(dfm(dict_toks), to = "data.frame") %>% mutate(tarih = docvars(metin_corp)$tarih)
+```
+
+```{r}
+tidy_dict <- convert(dfm(dict_toks), to = "data.frame") %>% mutate(tarih = docvars(metin_corp)$tarih)
+tidy_dict %>% pivot_longer(cols= 2:5, names_to = "kategori") %>% arrange(desc(tarih))
+```
+
+```{r}
+tidy_dict %>% pivot_longer(cols= 2:5, names_to = "kategori") %>% ggplot(aes(tarih, value, fill = kategori))+geom_area(alpha = 0.8)+geom_point(size=1.5, alpha = 0.5)+facet_wrap(~kategori, scales = "free_x")+labs(title = "Altılı masa ortak açıklamalarında ne diyor?", x="toplantı tarihleri", y="kelime sayısı")+theme_poppins()
+```
+
+
+```{r}
+tidy_dict %>% pivot_longer(cols= 2:5, names_to = "kategori") %>% ggplot(aes(tarih, value, color =kategori))+geom_line(size =1)+geom_point(size=2.5)+labs(title = "Altılı masa ortak açıklamalarında ne diyor?", x="toplantı tarihleri", y="kelime sayısı")+theme_poppins()+theme(legend.position = "bottom")
+```
+
+## **WORD FREQUENCY**
+
+*unigram*
+
+```{r}
+custom_sw <- c("son","içinde*","ülke*","şekil*","bugün*","bizler","sizler","onlar","o","sen","ben","biz*","konu*","aldık*","araya*","ortaya*","toplantı*","ele*","türkiye*","biçim*","etmek*","iste*","değerlendir*","altına","hayata","süreci","çalışmalar*","etkin","politikalar","bağlamda","devam","başkanı","çalışma*","edeceğiz","gün","geçen","altında","amacıyla","yol","karşı","millet*","önem*","tesis*","iç","şubat","tarihinde","gelişme*","geniş","grubu*","alan","yaraşır","ilan","önümüzdeki","ikinci","üçüncü","dördüncü", "beşinci","altıncı","yedince","sekizinci","dokuzuncu","onuncu","asla","büyük","ev","sahipli*","geldik","süreç*","öte","yandan","bilgisine","ediyoruz","kararlı*","çerçeve*","günü","adımları","vatandaş*","taraftan","izin","sürdürme*","alt","farklı*","altılı","gelen*","genel*","masa*","parti*","süreci*","esas*","ağır*","açan","adım*","alanları*","alın*","alarak","aldığı*","ana","arasında*","aşamasın*","atılacak","attık","aynı*","atılac*","aziz","bağlam*","dayalı","derin*","dikkat*","diliyor*","doğrultusu*","dönem*","edil*","elde*","etme","ettiği*","geçiş*","geçtiğimiz*","gören","görüyoruz","gözden","hafta","içine","ilişkin","inanıyoruz*","kalan","karar*","karşı*","koyduğu*","kurduğu*","kurulm*","malzeme*","niteli*","olaca*","önce*","öneri*","örneğ*","özel*","sağlan*","sağlayaca*","sahip*","sayın","sonra*","sunar*","tarih*","türlü","uzun","üzeri*","verdi*","verece*","vermeyece*","vesile*","vurgu*","yana","yapıla*","yelpaze*","yer","yıl","yılların","yıllık","yoğun","yönelik","yüksek","zaman*","başlattığımız","başkanlar*","boyutlu","bulunduk","hazırla*","hazırlık*","olduk","oluşturduk","siyasi","gündür","birbirinden")
+```
+
+
+```{r}
+word_tokens <- tokens(metin_corp, 
+       remove_punct = T,
+       remove_symbols = T,
+       remove_numbers = T,
+       remove_url = T,
+       remove_separators = T) %>% 
+  tokens_tolower() %>% tokens_remove(pattern =stopwords(language = "tr", source = "stopwords-iso")) %>% tokens_remove(pattern = custom_sw) #%>%  tokens_wordstem(language = "tr")
+
+word_dfm <- word_tokens %>% 
+      dfm()
+
+
+word_dfm %>% textstat_frequency() %>% filter(frequency >=3)
+```
+
+
+**refining unigrams**
+
+```{r}
+adalet_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^adalet*"))%>%
+                                    pull(feature)
+adalet_plus
+```
+
+```{r}
+aday_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^aday+"))%>%
+                                    pull(feature)
+aday_plus
+```
+
+
+```{r}
+anayasa_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^anayasa*"))%>%
+                                    pull(feature)
+anayasa_plus
+```
+
+
+```{r}
+barış_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "barış*"))%>%
+                                    filter(!str_detect(feature,"itibar")) %>%
+                                    filter(!str_detect(feature,"barınma")) %>% 
+                                    pull(feature)
+barış_plus
+```
+
+
+```{r}
+birlik_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^birli+"))%>%
+                                    pull(feature)
+birlik_plus
+```
+
+```{r}
+cb_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^cumhurbaşka*"))%>%
+                                    pull(feature)
+cb_plus
+```
+
+
+```{r}
+cumh_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^cumhuriy*"))%>%
+                                    pull(feature)
+cumh_plus
+```
+
+
+```{r}
+dem_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "demok*"))%>%
+                                    pull(feature)
+dem_plus
+
+```
+
+```{r}
+dv_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^devlet*"))%>%
+                                    pull(feature)
+dv_plus
+```
+
+
+```{r}
+ekon_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^ekon*"))%>%
+                                    pull(feature)
+ekon_plus
+```
+
+```{r}
+hedef_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^hedef*"))%>%
+                                    pull(feature)
+hedef_plus
+```
+
+```{r}
+hukuk_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^hukuk*"))%>%
+                                    pull(feature)
+hukuk_plus
+```
+```{r}
+ilke_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^ilke*"))%>%
+                                    pull(feature)
+ilke_plus
+```
+
+```{r}
+ikt_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^iktidar*"))%>%
+                                    pull(feature)
+ikt_plus
+```
+
+```{r}
+kamu_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^kamuoyu*"))%>%
+                                    pull(feature)
+kamu_plus
+```
+
+```{r}
+komis_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^komisyon*"))%>%
+                                    pull(feature)
+komis_plus
+```
+
+```{r}
+kurum_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^kurum+"))%>%
+                                    pull(feature)
+kurum_plus
+```
+
+```{r}
+mutab_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^mutab+"))%>%
+                                    pull(feature)
+mutab_plus
+```
+
+
+```{r}
+sistem_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^sistem+"))%>%
+                                    pull(feature)
+sistem_plus
+```
+
+
+```{r}
+ozg_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^özgür+"))%>%
+                                    pull(feature)
+ozg_plus
+```
+
+
+```{r}
+reform_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^reform+"))%>%
+                                    pull(feature)
+reform_plus
+```
+
+
+```{r}
+yargı_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^yargı+"))%>%
+                                    pull(feature)
+yargı_plus
+```
+
+
+```{r}
+uzlas_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^uzlaş+"))%>%
+                                    pull(feature)
+uzlas_plus
+```
+
+
+```{r}
+tah_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^taahhüt+"))%>%
+                                    pull(feature)
+tah_plus
+```
+
+
+```{r}
+ort_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^ortak+"))%>%
+                                    pull(feature)
+ort_plus
+```
+
+
+```{r}
+kutup_plus <- textstat_frequency(dfm(word_tokens)) %>% 
+                                    filter(str_detect(feature, "^kutup+"))%>%
+                                    pull(feature)
+kutup_plus
+```
+
+```{r}
+
+refined_unigram <- textstat_frequency(dfm(word_tokens)) %>% tibble() %>%  mutate(feature = case_when(
+  feature %in% adalet_plus ~ "adalet",
+  feature %in% anayasa_plus ~ "anayasa",
+  feature %in% barış_plus ~ "barış",
+  feature %in% birlik_plus ~ "birlik",
+  feature %in% cb_plus ~ "c.başkanı",
+  feature %in% cumh_plus ~ "cumhuriyet",
+  feature %in% dem_plus ~ "demokrasi",
+  feature %in% dv_plus ~ "devlet",
+  feature %in% ikt_plus ~ "iktidar",
+  feature %in% hukuk_plus ~ "hukuk",
+  feature %in% komis_plus ~ "komisyon",
+  feature %in% kurum_plus ~ "kurum",
+  feature %in% mutab_plus ~ "matabakat",
+  feature %in% ort_plus ~ "ortak",
+  feature %in% ozg_plus ~ "özgürlük",
+  feature %in% reform_plus ~ "reform",
+  feature %in% sistem_plus ~ "sistem",
+  feature %in% tah_plus ~ "taahhüt",
+  feature %in% uzlas_plus ~ "uzlaşma",
+  feature %in% yargı_plus ~ "yargı",
+  feature %in% kutup_plus~"kutup",
+  feature %in% aday_plus ~ "aday",
+  TRUE ~ as.character(feature)
+  )) %>% select(1, 2) %>% group_by(feature) %>% summarise(freq_sum = sum(frequency)) %>% arrange(desc(freq_sum))
+
+refined_unigram
+
+```
+
+```{r}
+library(forcats)
+```
+
+
+```{r}
+refined_unigram2 <- refined_unigram %>% filter(freq_sum>3)
+refined_unigram2 %>% slice_max(freq_sum, n=20) %>% 
+  ggplot(aes(freq_sum, fct_reorder( feature, freq_sum)))+
+  geom_segment(aes(xend=0, yend=feature))+
+  geom_point(size = 3, color = "orange")+labs(title = "Ortak açıklamalarda sıklıkla kullanılan kelimeler", x="", y="", subtitle = "12 Şubat 2022- 29 Ocak 2023 arasında yapılan açıklamaları kapsar",caption = "Bazı kelimeler rafine edilmiştir")+theme_poppins()
+```
+
+
+
+
+**wordcloud**
+
+```{r}
+wordcloud2::wordcloud2(refined_unigram2,minRotation = -pi/6, maxRotation = -pi/6,
+  rotateRatio = 1)
+```
+
+
+```{r}
+wordcloud2::wordcloud2(refined_unigram2,
+  color = ifelse(refined_unigram2$freq_sum > 35, '#f5512c', 'black'),minRotation = -pi/6, maxRotation = -pi/6,
+  rotateRatio = 1, minSize = 3)
+```
+
+
+*bigram*
+
+```{r}
+word_tokens %>% tokens_ngrams(n=2) %>% dfm %>% textstat_frequency(groups = tarih)
+```
+
+
+```{r}
+bigrams <- word_tokens %>% tokens_ngrams(n=2) %>% dfm %>% textstat_frequency()
+bigrams
+```
+
+```{r}
+bigrams %>% slice_max(frequency, n=20) %>% 
+  ggplot(aes(frequency, fct_reorder(feature, frequency)))+
+  geom_segment(aes(xend=0, yend=feature))+
+  geom_point(size = 3, color = "orange")+labs(title = "Ortak açıklamalarda sıklıkla kullanılan bigrams", x="", y="", subtitle = "12 Şubat 2022- 29 Ocak 2023 arasında yapılan açıklamaları kapsar",caption = "")+theme_poppins()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
